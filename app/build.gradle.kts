@@ -8,6 +8,7 @@ plugins {
 android {
     namespace = "bd.mathpaper"
     compileSdk = 35
+
     defaultConfig {
         applicationId = "bd.mathpaper"
         minSdk = 26
@@ -15,9 +16,36 @@ android {
         versionCode = 1
         versionName = "0.1"
     }
-    buildTypes { release { isMinifyEnabled = false; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt")) } }
-    buildFeatures { compose = true }
-    testOptions { unitTests.isReturnDefaultValues = true }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt")
+            )
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        compose = true
+    }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(
+            org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+        )
+    }
 }
 
 dependencies {
@@ -26,6 +54,6 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
-    testImplementation("junit:junit:4.13.2")
+
     testImplementation("junit:junit:4.13.2")
 }
