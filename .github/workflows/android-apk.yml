@@ -1,12 +1,50 @@
+name: MathPaperBD Release APK
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build and Diagnose Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "8.9"
+
+      - name: Build Release APK
+        run: gradle --no-daemon assembleRelease
+
       - name: Diagnose Release APK
         shell: bash
         run: |
-          set -e
-          APK=$(find app/build/outputs/apk/release \
-            -maxdepth 1 -name '*.apk' -print -quit)
+          set -euo pipefail
+
+          APK="$(find app/build/outputs/apk/release \
+            -maxdepth 1 -type f -name '*.apk' -print -quit)"
 
           if [ -z "$APK" ]; then
-            echo "ERROR: No APK found"
+            echo "ERROR: No release APK found"
             exit 1
           fi
 
@@ -14,13 +52,35 @@
           ls -lh "$APK"
           file "$APK"
 
-          echo "=== APK PACKAGE DETAILS ==="
-          AAPT=$(find "$ANDROID_HOME/build-tools" \
-            -type f -name aapt | sort -V | tail -n 1)
-          "$AAPT" dump badging "$APK" | \
+          AAPT="$(find "$ANDROID_HOME/build-tools" \
+            -type f -name aapt | sort -V | tail -n 1)"
+
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" \
+            -type f -name apksigner | sort -V | tail -n 1)"
+
+          if [ -z "$AAPT" ] || [ -z "$APKSIGNER" ]; then
+            echo "ERROR: Android build tools not found"
+            exit 1
+          fi
+
+          echo "=== PACKAGE DETAILS ==="
+          "$AAPT" dump badging "$APK" |
             grep -E "package:|sdkVersion:|targetSdkVersion:|native-code:|launchable-activity:" || true
 
-          echo "=== APK SIGNATURE ==="
-          APKSIGNER=$(find "$ANDROID_HOME/build-tools" \
-            -type f -name apksigner | sort -V | tail -n 1)
+          echo "=== SIGNATURE CHECK ==="
           "$APKSIGNER" verify --verbose "$APK"
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MathPaperBD-release-APK
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/build/outputs/apk/release/*.apk
+          generate_release_notes: true
