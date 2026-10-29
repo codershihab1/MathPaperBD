@@ -1,0 +1,2 @@
+Bundled: GNU FreeSans / FreeSerif (GPLv3 with font exception; see FreeFont-LICENSE.txt). Full Bengali coverage + OpenType shaping.
+To use Noto Bengali instead: replace bengali_sans.ttf / bengali_serif.ttf with NotoSansBengali / NotoSerifBengali (SIL OFL), same file names.
