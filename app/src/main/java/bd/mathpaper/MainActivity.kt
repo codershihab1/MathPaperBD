@@ -5,16 +5,17 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.compose.material3.MaterialTheme
+import androidx.activity.enableEdgeToEdge
 
 class MainActivity : ComponentActivity() {
     private val vm: VM by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         Fx.init(this)
         setContent {
-            MaterialTheme {
+            AppTheme {
                 BackHandler(vm.doc != null) { vm.close() }
                 App(vm)
             }

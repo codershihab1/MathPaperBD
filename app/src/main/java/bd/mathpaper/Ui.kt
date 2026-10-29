@@ -2,55 +2,191 @@
 
 package bd.mathpaper
 
+import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowRightAlt
+import androidx.compose.material.icons.automirrored.outlined.Redo
+import androidx.compose.material.icons.automirrored.outlined.Undo
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
+import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
 @Composable
 fun App(vm: VM) = if (vm.doc == null) Home(vm) else Editor(vm)
 
+// ================= Home =================
+
+private fun thumb(d: Doc): Bitmap {
+    val w = 360; val sc = w / d.pw
+    val bm = Bitmap.createBitmap(w, (d.ph * sc).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+    android.graphics.Canvas(bm).apply { drawColor(android.graphics.Color.WHITE); scale(sc, sc); d.pages.firstOrNull()?.els?.forEach { drawEl(it) } }
+    return bm
+}
+
 @Composable
-fun Home(vm: VM) = Scaffold(
-    topBar = { TopAppBar(title = { Text("MathPaper BD") }) },
-    floatingActionButton = { ExtendedFloatingActionButton(onClick = vm::create) { Text("+ নতুন ডকুমেন্ট") } },
-) { p ->
-    LazyColumn(Modifier.padding(p)) {
-        items(vm.docs, key = { it.id }) { d ->
-            ListItem(
-                headlineContent = { Text(d.title) },
-                supportingContent = { Text("${d.pages.size} পৃষ্ঠা") },
-                trailingContent = { TextButton({ vm.remove(d.id) }) { Text("মুছুন") } },
-                modifier = Modifier.clickable { vm.open(d.id) },
-            )
+fun Home(vm: VM) {
+    var ask by remember { mutableStateOf<Doc?>(null) }
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        floatingActionButton = {
+            ExtendedFloatingActionButton(onClick = vm::create, icon = { Icon(Icons.Outlined.Add, null) }, text = { Text("নতুন ডকুমেন্ট") })
+        },
+    ) { p ->
+        LazyVerticalGrid(
+            GridCells.Adaptive(160.dp), Modifier.fillMaxSize().padding(p),
+            contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 96.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Row(Modifier.padding(top = 24.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(56.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.primary), Alignment.Center) {
+                        Image(painterResource(R.drawable.ic_launcher_foreground), null, Modifier.requiredSize(92.dp))
+                    }
+                    Column(Modifier.padding(start = 14.dp)) {
+                        Text("MathPaper BD", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Text("অফলাইন গণিত প্রশ্নপত্র নির্মাতা", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            if (vm.docs.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+                Column(Modifier.fillMaxWidth().padding(vertical = 64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Outlined.Description, null, Modifier.size(72.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = .5f))
+                    Text("এখনো কোনো ডকুমেন্ট নেই", Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleMedium)
+                    Text("নিচের বাটনে চেপে প্রথম প্রশ্নপত্র বানান", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else item(span = { GridItemSpan(maxLineSpan) }) {
+                Text("সাম্প্রতিক", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+            }
+            items(vm.docs, key = { it.id }) { d ->
+                Card(
+                    { vm.open(d.id) }, colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .45f)),
+                ) {
+                    val bm = remember(d.id, d.updated) { thumb(d) }
+                    Image(bm.asImageBitmap(), null, Modifier.fillMaxWidth().padding(10.dp).clip(RoundedCornerShape(8.dp)).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)).aspectRatio(d.pw / d.ph), contentScale = ContentScale.Crop)
+                    Row(Modifier.padding(start = 14.dp, end = 4.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(d.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+                            Text("${d.pages.size} পৃষ্ঠা", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        IconButton({ ask = d }) { Icon(Icons.Outlined.Delete, "মুছুন", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
+                }
+            }
+        }
+    }
+    ask?.let { d ->
+        AlertDialog(
+            { ask = null }, title = { Text("মুছে ফেলবেন?") }, text = { Text("\"${d.title}\" স্থায়ীভাবে মুছে যাবে।") },
+            confirmButton = { TextButton({ vm.remove(d.id); ask = null }) { Text("মুছুন", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton({ ask = null }) { Text("বাতিল") } },
+        )
+    }
+}
+
+// ================= Editor =================
+
+private val shapeTools = listOf<Pair<Tool, ImageVector?>>(
+    Tool.LINE to Icons.Outlined.HorizontalRule, Tool.ARROW to Icons.AutoMirrored.Outlined.ArrowRightAlt, Tool.TRI to Icons.Outlined.ChangeHistory,
+    Tool.QUAD to Icons.Outlined.CropSquare, Tool.CIRCLE to Icons.Outlined.RadioButtonUnchecked, Tool.ANGLE to null, Tool.ARC to null, Tool.FREE to Icons.Outlined.Gesture,
+)
+
+private fun hint(t: Tool) = when (t) {
+    Tool.SELECT -> ""; Tool.TEXT -> "পেজে ট্যাপ করে লিখুন"; Tool.FREE -> "আঙুল দিয়ে আঁকুন"; else -> "পেজে আঙুল টেনে আঁকুন"
+}
+
+@Composable
+fun DockItem(icon: ImageVector, label: String, on: Boolean, click: () -> Unit) = Column(
+    Modifier.clip(RoundedCornerShape(16.dp)).clickable(onClick = click).padding(horizontal = 8.dp, vertical = 4.dp),
+    horizontalAlignment = Alignment.CenterHorizontally,
+) {
+    val c = MaterialTheme.colorScheme
+    Box(Modifier.size(56.dp, 30.dp).clip(CircleShape).background(if (on) c.primaryContainer else Color.Transparent), Alignment.Center) {
+        Icon(icon, label, Modifier.size(22.dp), tint = if (on) c.onPrimaryContainer else c.onSurfaceVariant)
+    }
+    Text(label, style = MaterialTheme.typography.labelSmall, color = if (on) c.primary else c.onSurfaceVariant, maxLines = 1)
+}
+
+@Composable
+fun Dock(vm: VM, onImage: () -> Unit, onEdit: (El) -> Unit) {
+    var shapes by remember { mutableStateOf(false) }
+    val sel = vm.selEl
+    Surface(tonalElevation = 3.dp, shadowElevation = 12.dp, shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)) {
+        Column(Modifier.navigationBarsPadding()) {
+            AnimatedVisibility(sel != null) { sel?.let { Panel(vm, it) { onEdit(it) } } }
+            AnimatedVisibility(shapes) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    shapeTools.forEach { (t, ic) ->
+                        FilledTonalIconToggleButton(vm.tool == t, { vm.tool = if (it) t else Tool.SELECT }) {
+                            if (ic != null) Icon(ic, t.name) else Text(t.label)
+                        }
+                    }
+                    VerticalDivider(Modifier.height(24.dp))
+                    FilledTonalIconToggleButton(vm.snap, { vm.snap = it }) { Icon(Icons.Outlined.GridOn, "গ্রিড") }
+                }
+            }
+            if (vm.tool != Tool.SELECT) Text(hint(vm.tool), Modifier.fillMaxWidth().padding(top = 4.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), Arrangement.SpaceEvenly) {
+                DockItem(Icons.Outlined.TouchApp, "নির্বাচন", vm.tool == Tool.SELECT) { vm.tool = Tool.SELECT }
+                DockItem(Icons.Outlined.TextFields, "লেখা", vm.tool == Tool.TEXT) { vm.tool = Tool.TEXT; shapes = false }
+                DockItem(Icons.Outlined.Category, "আকৃতি", shapes || vm.tool in shapeTools.map { it.first }) { shapes = !shapes }
+                DockItem(Icons.Outlined.Functions, "সূত্র", false) { vm.addEq() }
+                DockItem(Icons.Outlined.TableChart, "টেবিল", false) { vm.addTable() }
+                DockItem(Icons.Outlined.Image, "ছবি", false, onImage)
+            }
         }
     }
 }
@@ -68,55 +204,62 @@ fun Editor(vm: VM) {
     vm.msg?.let { m -> AlertDialog({ vm.msg = null }, { TextButton({ vm.msg = null }) { Text("ঠিক আছে") } }, text = { Text(m, Modifier.verticalScroll(rememberScrollState())) }) }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .6f),
         topBar = {
             TopAppBar(
-                title = { Text(d.title, Modifier.clickable { dialog = "rename" }, maxLines = 1) },
-                navigationIcon = { TextButton(vm::close) { Text("←") } },
+                title = {
+                    Column(Modifier.clickable { dialog = "rename" }) {
+                        Text(d.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+                        Text("${d.pages.size} পৃষ্ঠা · A4", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                },
+                navigationIcon = { IconButton(vm::close) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "পেছনে") } },
                 actions = {
-                    TextButton(vm::undo, enabled = vm.ustack.isNotEmpty()) { Text("↶") }
-                    TextButton(vm::redo, enabled = vm.rstack.isNotEmpty()) { Text("↷") }
-                    TextButton(vm::del, enabled = vm.sel != null) { Text("মুছুন") }
+                    IconButton(vm::undo, enabled = vm.ustack.isNotEmpty()) { Icon(Icons.AutoMirrored.Outlined.Undo, "আনডু") }
+                    IconButton(vm::redo, enabled = vm.rstack.isNotEmpty()) { Icon(Icons.AutoMirrored.Outlined.Redo, "রিডু") }
+                    if (vm.sel != null) IconButton(vm::del) { Icon(Icons.Outlined.Delete, "মুছুন", tint = MaterialTheme.colorScheme.error) }
                     Box {
-                        TextButton({ menu = true }) { Text("⋮") }
+                        IconButton({ menu = true }) { Icon(Icons.Outlined.MoreVert, "আরও") }
                         DropdownMenu(menu, { menu = false }) {
-                            listOf<Pair<String, () -> Unit>>(
-                                "T  লেখা" to vm::addText,
-                                "∑  সমীকরণ" to vm::addEq,
-                                "▦  টেবিল" to vm::addTable,
-                                "🖼  ছবি" to { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                                "⚙  পৃষ্ঠা সেটিংস" to { dialog = "setup" },
-                                "⤓  PDF এক্সপোর্ট" to { save.launch("${d.title}.pdf") },
-                                "⤓  DOCX এক্সপোর্ট" to { docx.launch("${d.title}.docx") },
-                            ).forEach { (t, f) -> DropdownMenuItem({ Text(t) }, { menu = false; f() }) }
+                            listOf<Triple<String, ImageVector, () -> Unit>>(
+                                Triple("পৃষ্ঠা সেটিংস", Icons.Outlined.Settings) { dialog = "setup" },
+                                Triple("নাম বদলান", Icons.Outlined.Edit) { dialog = "rename" },
+                                Triple("PDF এক্সপোর্ট", Icons.Outlined.PictureAsPdf) { save.launch("${d.title}.pdf") },
+                                Triple("DOCX এক্সপোর্ট", Icons.Outlined.Description) { docx.launch("${d.title}.docx") },
+                            ).forEach { (t, ic, f) -> DropdownMenuItem({ Text(t) }, { menu = false; f() }, leadingIcon = { Icon(ic, null) }) }
                         }
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
         },
-        bottomBar = {
-            Surface(tonalElevation = 3.dp) {
+        bottomBar = { Dock(vm, { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { editing = it; cell = null } },
+    ) { p ->
+        val ls = rememberLazyListState()
+        // the page nearest the viewport centre is the "current" page: new objects land there
+        LaunchedEffect(ls, d.pages.size) {
+            snapshotFlow {
+                val li = ls.layoutInfo; val mid = (li.viewportStartOffset + li.viewportEndOffset) / 2
+                li.visibleItemsInfo.minByOrNull { abs(it.offset + it.size / 2 - mid) }?.index ?: 0
+            }.collect { vm.page = it.coerceIn(0, d.pages.lastIndex) }
+        }
+        LazyColumn(
+            Modifier.padding(p).fillMaxSize(), ls,
+            contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 24.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            itemsIndexed(d.pages) { i, pg ->
                 Column {
-                    vm.selEl?.let { e -> Panel(vm, e) { editing = e; cell = null } }
-                    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp)) {
-                        Tool.entries.forEach { t -> FilterChip(vm.tool == t, { vm.tool = t }, { Text(t.label) }, Modifier.padding(2.dp)) }
-                        FilterChip(vm.snap, { vm.snap = !vm.snap }, { Text("▦ গ্রিড") }, Modifier.padding(2.dp))
+                    Text("পৃষ্ঠা ${i + 1}", Modifier.padding(start = 4.dp, bottom = 6.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Surface(shadowElevation = 6.dp, shape = RoundedCornerShape(4.dp), color = Color.White) {
+                        PageView(vm, d, pg, i) { e, at ->
+                            vm.sel = e.id
+                            if (e is TableEl) cell = e.cellAt(at.x, at.y).also { if (it != null) editing = e } else { editing = e; cell = null }
+                        }
                     }
                 }
             }
-        },
-    ) { p ->
-        LazyColumn(
-            Modifier.padding(p).fillMaxSize().background(Color(0xFFCFD8DC)),
-            contentPadding = PaddingValues(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            itemsIndexed(d.pages) { i, pg ->
-                PageView(vm, d, pg, i) { e, at ->
-                    vm.sel = e.id
-                    if (e is TableEl) cell = e.cellAt(at.x, at.y).also { if (it != null) editing = e } else { editing = e; cell = null }
-                }
-            }
-            item { Button(vm::addPage, Modifier.fillMaxWidth()) { Text("+ পৃষ্ঠা") } }
+            item { OutlinedButton(vm::addPage, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Add, null); Spacer(Modifier.width(8.dp)); Text("পৃষ্ঠা যোগ করুন") } }
         }
     }
 
@@ -129,7 +272,11 @@ fun Editor(vm: VM) {
     }
     if (dialog == "rename") {
         var t by remember { mutableStateOf(d.title) }
-        AlertDialog({ dialog = "" }, { TextButton({ vm.rename(t); dialog = "" }) { Text("ঠিক আছে") } }, text = { OutlinedTextField(t, { t = it }, singleLine = true) })
+        AlertDialog(
+            { dialog = "" }, title = { Text("ডকুমেন্টের নাম") },
+            confirmButton = { TextButton({ vm.rename(t); dialog = "" }) { Text("ঠিক আছে") } },
+            text = { OutlinedTextField(t, { t = it }, singleLine = true) },
+        )
     }
     if (dialog == "setup") SetupDialog(d, { dialog = "" }) { l, m, n -> vm.setup(l, m, n); dialog = "" }
 }
@@ -145,35 +292,42 @@ fun PageView(vm: VM, d: Doc, pg: Page, index: Int, onEdit: (El, Pt) -> Unit) = B
         Modifier.fillMaxWidth().height((d.ph * s).dp).background(Color.White).clipToBounds()
             .pointerInput(index, s) {
                 detectTapGestures(
-                    onTap = { o -> val r = raw(o); vm.page = index; vm.sel = els().lastOrNull { it.hitAny(r.x, r.y, 24f / s) }?.id },
+                    onTap = { o ->
+                        val r = raw(o); vm.page = index
+                        if (vm.tool == Tool.TEXT) { // place a new text box exactly where tapped, then edit it
+                            val e = TextEl(x = r.x.coerceIn(0f, d.pw - 80f), y = r.y.coerceIn(0f, d.ph - 30f)); vm.addEl(e); vm.tool = Tool.SELECT; onEdit(e, r)
+                        } else vm.sel = els().lastOrNull { it.hitAny(r.x, r.y, 24f / s) }?.id
+                    },
                     onDoubleTap = { o -> val r = raw(o); vm.page = index; els().lastOrNull { it.hitAny(r.x, r.y, 24f / s) }?.let { onEdit(it, r) } },
                 )
             }
             .pointerInput(index, s, vm.tool, vm.snap) {
-                var id: String? = null; var vi = -1; var a = Pt(0f, 0f); var cur: ShapeEl? = null
-                detectDragGestures(
-                    onDragStart = { o ->
-                        val r = raw(o); a = vm.sn(r); id = null; vi = -1; cur = null; vm.page = index
-                        if (vm.tool == Tool.SELECT) {
-                            val sel = els().find { it.id == vm.sel } as? ShapeEl
-                            if (sel != null && sel.kind != K.FREE) vi = sel.pts.indexOfFirst { hypot(it.x - r.x, it.y - r.y) < 16f / s }
-                            if (vi >= 0) id = sel!!.id
-                            else els().lastOrNull { it.hitAny(r.x, r.y, 24f / s) }?.let { id = it.id; vm.sel = it.id }
-                            if (id != null) vm.checkpoint()
-                        }
-                    },
-                    onDragEnd = { if (vm.tool != Tool.SELECT && vm.tool != Tool.FREE) vm.tool = Tool.SELECT },
-                ) { c, drag ->
-                    c.consume()
-                    val r = raw(c.position)
-                    val t = vm.tool
-                    if (t != Tool.SELECT) {
-                        val n = cur ?: newShape(t, a).also { vm.addEl(it) }
-                        cur = reshape(n, t, a, vm.sn(r)); vm.put(cur!!)
-                    } else id?.let { i ->
-                        if (vi >= 0) (els().find { it.id == i } as? ShapeEl)?.let { vm.put(it.withPt(vi, vm.sn(r))) }
-                        else vm.move(i, drag.x / dens.density / s, drag.y / dens.density / s)
+                // Only takes over the touch when it grabs an object or draws; on empty space the page list scrolls.
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val r0 = raw(down.position); val t = vm.tool
+                    if (t == Tool.TEXT) return@awaitEachGesture
+                    var id: String? = null; var vi = -1
+                    if (t == Tool.SELECT) {
+                        val sel = els().find { it.id == vm.sel } as? ShapeEl
+                        if (sel != null && sel.kind != K.FREE) vi = sel.pts.indexOfFirst { hypot(it.x - r0.x, it.y - r0.y) < 16f / s }
+                        id = if (vi >= 0) sel!!.id else els().lastOrNull { it.hitAny(r0.x, r0.y, 24f / s) }?.id
+                        if (id == null) return@awaitEachGesture
                     }
+                    val slop = awaitTouchSlopOrCancellation(down.id) { ch, _ -> ch.consume() } ?: return@awaitEachGesture
+                    vm.page = index
+                    if (id != null) { vm.sel = id; vm.checkpoint() }
+                    val a = vm.sn(r0); var cur: ShapeEl? = null
+                    drag(slop.id) { ch ->
+                        ch.consume()
+                        val r = raw(ch.position)
+                        if (t != Tool.SELECT) {
+                            val n = cur ?: newShape(t, a).also { vm.addEl(it) }
+                            cur = reshape(n, t, a, vm.sn(r)); vm.put(cur!!)
+                        } else if (vi >= 0) (els().find { it.id == id } as? ShapeEl)?.let { vm.put(it.withPt(vi, vm.sn(r))) }
+                        else ch.positionChange().let { dd -> vm.move(id!!, dd.x / dens.density / s, dd.y / dens.density / s) }
+                    }
+                    if (t != Tool.SELECT && t != Tool.FREE) vm.tool = Tool.SELECT
                 }
             },
     ) {
@@ -216,8 +370,8 @@ fun Panel(vm: VM, e: El, onEdit: () -> Unit) = Column(Modifier.heightIn(max = 26
                 FilterChip(e.dash, { vm.update(e.copy(dash = !e.dash)) }, { Text("┅") }, Modifier.padding(2.dp))
                 if (e.kind == K.POLY || e.kind == K.CIRCLE)
                     FilterChip(e.fill != 0, { vm.update(e.copy(fill = if (e.fill != 0) 0 else (e.color and 0xFFFFFF) or 0x33000000)) }, { Text("▨") }, Modifier.padding(2.dp))
-                TextButton(vm::dup) { Text("⧉") }
-                TextButton(vm::front) { Text("↑ সামনে") }
+                IconButton(vm::dup) { Icon(Icons.Outlined.ContentCopy, "ডুপ্লিকেট") }
+                IconButton(vm::front) { Icon(Icons.Outlined.FlipToFront, "সামনে আনুন") }
             }
             Sl("রেখার বেধ", e.w, 0.5f..8f) { vm.update(e.copy(w = it), "w") }
             if (e.kind == K.ANGLE || e.kind == K.ARC) {
@@ -229,18 +383,18 @@ fun Panel(vm: VM, e: El, onEdit: () -> Unit) = Column(Modifier.heightIn(max = 26
             Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                 Swatches { vm.update(e.copy(color = it)) }
                 TextButton(onEdit) { Text("✎ সম্পাদনা") }
-                TextButton(vm::dup) { Text("⧉") }
-                TextButton(vm::front) { Text("↑ সামনে") }
+                IconButton(vm::dup) { Icon(Icons.Outlined.ContentCopy, "ডুপ্লিকেট") }
+                IconButton(vm::front) { Icon(Icons.Outlined.FlipToFront, "সামনে আনুন") }
             }
             Sl("প্রস্থ", e.w, 40f..560f) { vm.update(e.copy(w = it), "w") }
             Sl("ঘূর্ণন (°)", e.rot, -180f..180f) { vm.update(e.copy(rot = it), "r") }
         }
         is EqEl -> {
-            Row { TextButton(onEdit) { Text("✎ সূত্র সম্পাদনা") }; TextButton(vm::dup) { Text("⧉") }; TextButton(vm::front) { Text("↑ সামনে") } }
+            Row { TextButton(onEdit) { Text("✎ সূত্র সম্পাদনা") }; IconButton(vm::dup) { Icon(Icons.Outlined.ContentCopy, "ডুপ্লিকেট") }; IconButton(vm::front) { Icon(Icons.Outlined.FlipToFront, "সামনে আনুন") } }
             Sl("আকার", e.size, 10f..48f) { vm.update(e.copy(size = it), "s") }
         }
         is ImageEl -> {
-            Row { TextButton(vm::dup) { Text("⧉") }; TextButton(vm::front) { Text("↑ সামনে") } }
+            Row { IconButton(vm::dup) { Icon(Icons.Outlined.ContentCopy, "ডুপ্লিকেট") }; IconButton(vm::front) { Icon(Icons.Outlined.FlipToFront, "সামনে আনুন") } }
             Sl("প্রস্থ", e.w, 20f..560f) { vm.update(e.copy(w = it).fit(), "w") }
             Sl("ঘূর্ণন (°)", e.rot, -180f..180f) { vm.update(e.copy(rot = it), "r") }
             listOf("বাম", "উপর", "ডান", "নিচ").forEachIndexed { i, n ->
@@ -253,7 +407,7 @@ fun Panel(vm: VM, e: El, onEdit: () -> Unit) = Column(Modifier.heightIn(max = 26
                 TextButton({ if (e.cells.size > 1) vm.update(e.copy(cells = e.cells.dropLast(1))) }) { Text("− সারি") }
                 TextButton({ vm.update(e.copy(cells = e.cells.map { it + "" }, colW = e.colW + 80f)) }) { Text("+ কলাম") }
                 TextButton({ if (e.colW.size > 1) vm.update(e.copy(cells = e.cells.map { it.dropLast(1) }, colW = e.colW.dropLast(1))) }) { Text("− কলাম") }
-                TextButton(vm::dup) { Text("⧉") }
+                IconButton(vm::dup) { Icon(Icons.Outlined.ContentCopy, "ডুপ্লিকেট") }
             }
             Text("সেল সম্পাদনা: সেলে ডাবল-ট্যাপ করুন", style = MaterialTheme.typography.labelSmall)
             Sl("সারির উচ্চতা", e.rowH, 16f..80f) { vm.update(e.copy(rowH = it), "h") }
@@ -268,7 +422,10 @@ fun Panel(vm: VM, e: El, onEdit: () -> Unit) = Column(Modifier.heightIn(max = 26
 
 @Composable
 fun TextDialog(e: TextEl, onDismiss: () -> Unit, onDone: (TextEl) -> Unit) {
-    var t by remember { mutableStateOf(e.text) }
+    var tf by remember { mutableStateOf(TextFieldValue(e.text, TextRange(0, e.text.length))) }
+    val t = tf.text
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { delay(150); runCatching { focus.requestFocus() } }
     var sz by remember { mutableFloatStateOf(e.size) }
     var sp by remember { mutableFloatStateOf(e.spacing) }
     var b by remember { mutableStateOf(e.bold) }
@@ -282,7 +439,7 @@ fun TextDialog(e: TextEl, onDismiss: () -> Unit, onDone: (TextEl) -> Unit) {
         dismissButton = { TextButton(onDismiss) { Text("বাতিল") } },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                OutlinedTextField(t, { t = it }, Modifier.fillMaxWidth())
+                OutlinedTextField(tf, { tf = it }, Modifier.fillMaxWidth().focusRequester(focus))
                 Row(Modifier.horizontalScroll(rememberScrollState())) {
                     FilterChip(b, { b = !b }, { Text("B") }, Modifier.padding(2.dp))
                     FilterChip(i, { i = !i }, { Text("I") }, Modifier.padding(2.dp))
