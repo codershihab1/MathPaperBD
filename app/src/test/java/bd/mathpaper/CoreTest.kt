@@ -68,4 +68,44 @@ class CoreTest {
         val t = "ক্ষ জ্ঞ ক্ত ক্র প্র ত্র শ্র র্ক ি ী ু ূ ে ৈ ো ৌ বাংলাদেশ গণিত ত্রিভুজ চতুর্ভুজ বৃত্ত সমীকরণ প্রশ্নপত্র"
         assertEquals(t, json.decodeFromString<TextEl>(json.encodeToString(TextEl(text = t))).text)
     }
+
+    // ---- two-column system ----
+    @Test fun columnGeometry() {
+        val d = Doc(columns = 2, margin = 40f, gutter = 20f)
+        assertEquals((595f - 80f - 20f) / 2, d.colW, 0.001f)
+        assertEquals(40f, d.colX(0), 0.001f)
+        assertEquals(40f + d.colW + 20f, d.colX(1), 0.001f)
+        assertEquals(0, d.colAt(100f)); assertEquals(1, d.colAt(400f))
+        assertEquals(1, Doc().colCount); assertEquals(0, Doc().colAt(500f))
+    }
+
+    @Test fun oldProjectFilesLoadAsOneColumn() {
+        val j = json.encodeToString(sample()).replace(Regex("\"columns\":\\d+,?"), "")
+        assertEquals(1, json.decodeFromString<Doc>(j).columns)
+    }
+
+    @Test fun fitToColumnMovesAndResizes() {
+        val d = Doc(columns = 2)
+        val t = TextEl(x = 300f, w = 500f).inColumn(d, 0) as TextEl
+        assertEquals(d.colX(0), t.x, 0.001f); assertEquals(d.colW, t.w, 0.001f)
+        val tb = (TableEl().inColumn(d, 1) as TableEl)
+        assertEquals(d.colW, tb.colW.sum(), 0.01f); assertEquals(d.colX(1), tb.x, 0.001f)
+    }
+
+    @Test fun columnSnapIsMagnetic() {
+        val d = Doc(columns = 2)
+        assertEquals(d.colX(1), d.snapX(d.colX(1) + 4f, 100f, 6f), 0.001f)
+        assertEquals(d.colX(0) + d.colW - 100f, d.snapX(d.colX(0) + d.colW - 100f + 3f, 100f, 6f), 0.001f)
+        assertEquals(150f, d.snapX(150f, 100f, 6f), 0.001f)
+    }
+
+    // ---- formula parser must never hang or swallow braces ----
+    @Test fun emptyScriptArgumentsDoNotEatBraces() {
+        val n = parseEq("\\frac{x^}{y_}+1") as ERow
+        assertTrue(n.l[0] is EFrac); assertTrue(n.l.size >= 3)
+    }
+
+    @Test fun strayDelimitersTerminate() {
+        listOf("}}}", "{{{", "x^^^", "\\mat{1&&;;}", "\\mat{", "&;", "\\", "^_", "\\frac", "\\mat{{a&b}&c}").forEach { parseEq(it) }
+    }
 }

@@ -4,8 +4,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.activity.viewModels
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 
 class MainActivity : ComponentActivity() {
     private val vm: VM by viewModels()
@@ -16,7 +16,14 @@ class MainActivity : ComponentActivity() {
         Fx.init(this)
         setContent {
             AppTheme {
-                BackHandler(vm.doc != null) { vm.close() }
+                // Back peels off one layer at a time: dialog -> selection / tool -> document
+                BackHandler(vm.doc != null) {
+                    when {
+                        vm.editId != null -> vm.endEdit()
+                        vm.sel != null || vm.tool != Tool.SELECT -> { vm.sel = null; vm.tool = Tool.SELECT }
+                        else -> vm.close()
+                    }
+                }
                 App(vm)
             }
         }
