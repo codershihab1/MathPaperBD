@@ -10,6 +10,7 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.util.UUID
+import kotlin.math.abs
 
 const val A4W = 595f // points, document space
 const val A4H = 842f
@@ -118,11 +119,44 @@ data class Doc(
     val landscape: Boolean = false,
     val margin: Float = 40f,
     val pageNums: Boolean = false,
+    /** 1 or 2 text columns. Old project files have no such field and load as 1. */
+    val columns: Int = 1,
+    val gutter: Float = 24f,
+    val colRule: Boolean = true,
 ) {
     val pw get() = if (landscape) A4H else A4W
     val ph get() = if (landscape) A4W else A4H
+    val colCount get() = columns.coerceIn(1, 2)
+    /** Width of one column in points. */
+    val colW get() = (pw - 2 * margin - (colCount - 1) * gutter) / colCount
+    fun colX(i: Int) = margin + i.coerceIn(0, colCount - 1) * (colW + gutter)
+    /** Which column a page x-coordinate belongs to. */
+    fun colAt(x: Float): Int = if (colCount == 1 || x < colX(1) - gutter / 2) 0 else 1
+
+    /** Snaps a box [x, x+w] to a column edge when it is within [tol] points. */
+    fun snapX(x: Float, w: Float, tol: Float): Float {
+        for (i in 0 until colCount) {
+            val l = colX(i); val r = l + colW
+            if (abs(x - l) < tol) return l
+            if (abs(x + w - r) < tol) return r - w
+        }
+        return x
+    }
+
     /** Map every element; returning null deletes it. */
     fun map(f: (El) -> El?) = copy(pages = pages.map { p -> p.copy(els = p.els.mapNotNull(f)) })
+}
+
+/** Moves an element into column [col] and fits its width to the column. */
+fun El.inColumn(d: Doc, col: Int): El = when (this) {
+    is TextEl -> copy(x = d.colX(col), w = d.colW)
+    is EqEl -> copy(x = d.colX(col))
+    is ImageEl -> copy(x = d.colX(col), w = minOf(w, d.colW)).fit()
+    is TableEl -> {
+        val k = d.colW / colW.sum().coerceAtLeast(1f)
+        copy(x = d.colX(col), colW = colW.map { (it * k).coerceAtLeast(20f) })
+    }
+    is ShapeEl -> at(d.colX(col), y)
 }
 
 /** One JSON file per project, saved atomically (temp file + move). */

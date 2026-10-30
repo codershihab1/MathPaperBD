@@ -25,10 +25,16 @@ private val SYM = mapOf(
 
 private class P(val s: String) {
     var i = 0
+    var depth = 0   // open { } groups
+    var matAt = -1  // group depth at which & ; separate matrix cells
 
     fun row(stop: String = ""): EN {
         val l = mutableListOf<EN>()
-        while (i < s.length && s[i] !in stop) l += item()
+        while (i < s.length && s[i] !in stop) {
+            val before = i
+            l.add(item())
+            if (i == before) break // no progress (stray delimiter): let the caller deal with it, never loop forever
+        }
         return ERow(l)
     }
 
@@ -43,8 +49,17 @@ private class P(val s: String) {
     fun prim(): EN {
         if (i >= s.length) return ERow(emptyList())
         val c = s[i]
+        // a closing brace / cell separator belongs to the enclosing group: an empty argument such as x^{} or x^ must not swallow it
+        if (c == '}' && depth > 0) return ERow(emptyList())
+        if ((c == '&' || c == ';') && matAt == depth) return ERow(emptyList())
         return when {
-            c == '{' -> { i++; row("}").also { i++ } }
+            c == '{' -> {
+                i++; depth++
+                val r = row("}")
+                depth--
+                if (i < s.length && s[i] == '}') i++
+                r
+            }
             c == '\\' -> {
                 i++; val st = i
                 while (i < s.length && s[i].isLetter() && s[i].code < 128) i++
@@ -63,15 +78,17 @@ private class P(val s: String) {
     /** \mat{a&b;c&d} */
     fun mat(): EN {
         if (i >= s.length || s[i] != '{') return ERow(emptyList())
-        i++
+        i++; depth++
+        val saved = matAt; matAt = depth
         val rows = mutableListOf(mutableListOf<EN>())
         while (i < s.length) {
-            rows.last() += row("&;}")
+            rows.last().add(row("&;}"))
             if (i >= s.length) break
             val ch = s[i++]
             if (ch == '&') continue
-            if (ch == ';') rows += mutableListOf<EN>() else break
+            if (ch == ';') rows.add(mutableListOf()) else break
         }
+        matAt = saved; depth--
         return EMat(rows)
     }
 }
@@ -150,4 +167,11 @@ private fun lay(n: EN, z: Float): B = when (n) {
     is EMat -> mat(n.rows.map { r -> r.map { lay(it, z * .9f) } }, z)
 }
 
-fun eqBox(src: String, size: Float): B = lay(parseEq(src), size)
+private val eqCache = android.util.LruCache<Pair<String, Float>, B>(64)
+
+/** Layout is cached: the editor asks for it on every frame and every touch. */
+fun eqBox(src: String, size: Float): B {
+    val k = src to size
+    eqCache.get(k)?.let { return it }
+    return lay(parseEq(src), size).also { eqCache.put(k, it) }
+}

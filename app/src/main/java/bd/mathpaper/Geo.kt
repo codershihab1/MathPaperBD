@@ -14,7 +14,7 @@ import kotlin.math.min
 import kotlin.math.sin
 
 enum class Tool(val label: String) {
-    SELECT("☝"), LINE("╱"), ARROW("→"), TRI("△"), QUAD("▭"), CIRCLE("◯"), ANGLE("∠"), ARC("◠"), FREE("✎")
+    SELECT("☝"), TEXT("T"), LINE("╱"), ARROW("→"), TRI("△"), QUAD("▭"), CIRCLE("◯"), ANGLE("∠"), ARC("◠"), FREE("✎")
 }
 
 // ---- creation / editing (pure functions) ----

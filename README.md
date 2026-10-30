@@ -17,6 +17,13 @@ Unit tests: `./gradlew testDebugUnitTest`
 | Export.kt / Docx.kt | PDF (PdfDocument) / DOCX (hand-written OOXML) |
 | Ui.kt | all screens and dialogs |
 
+## What changed in v2
+- **Drag & drop fixed**: the old code read `positionChange()` after consuming the pointer (always 0), so nothing moved. Dragging now uses absolute positions, with grid snap and a magnet to column/margin edges.
+- **Zoom / pan**: pinch (50 %–400 %), two-finger pan, one-finger sideways pan when zoomed, +/−/fit chip.
+- **Writing**: tap the text tool, tap the page, type. Tap an already-selected text/formula/table cell to edit (no double-tap delay). Dialog state lives in the ViewModel, `configChanges` stops activity recreation, and no `!!` remains in commands.
+- **1 or 2 columns** (menu -> পৃষ্ঠা ও কলাম): gutter, divider rule, tinted column guides, "কলাম ১/২" fit buttons, new text/tables/images fit the column, optional "fit existing objects". PDF draws the divider; DOCX export emits a real 2-column section with column breaks.
+- Resize handle (round dot) on text/image/table/formula; send backward; send to previous/next page; delete/reorder pages; duplicate project; question-paper header template; maths-symbol row in text dialogs; EXIF-rotated photos; layout caches (smooth on low-end phones); formula parser no longer eats `}` or loops on stray delimiters; dark theme for real.
+
 ## Formula syntax
 `\frac{a}{b}  x^2  x_1  \sqrt{x}  \mat{1&2;3&4}  \pi \theta \angle \deg \times \le \ge ...`
 
@@ -40,6 +47,7 @@ Free-form positions become indents/spacing in reading order; DOCX is an editable
 
 ## Known limitations
 - Text does not auto-flow between pages; objects are free-positioned (move to next page by hand).
-- No header/footer text (page numbers only), no multi-select/grouping, no zoom/pan, no rotated-text in DOCX.
+- No header/footer text (page numbers only), no multi-select/grouping, no rotated-text in DOCX.
+- DOCX with 2 columns: objects wider than a column are placed inside one column (the app warns); a column that overflows a page continues in the next column in Word.
 - Objects overlapping in DOCX are stacked in reading order.
-- Not compiled or device-tested by the author of this scaffold: run the checklist above.
+- v2 was written without a compiler or device available: build it, run `testDebugUnitTest`, then the checklist above, and report any compile error / Logcat `FATAL EXCEPTION`.
